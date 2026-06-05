@@ -24,6 +24,39 @@ export function DataPreviewTable({ rows, errors, duplicateIds, onChange, onDelet
     overscan: 12
   });
 
+  function focusCell(rowIndex: number, fieldIndex: number) {
+    const targetRow = Math.min(Math.max(rowIndex, 0), rows.length - 1);
+    const targetField = Math.min(Math.max(fieldIndex, 0), ORDER_FIELDS.length - 1);
+    rowVirtualizer.scrollToIndex(targetRow, { align: "auto" });
+    window.setTimeout(() => {
+      parentRef.current
+        ?.querySelector<HTMLInputElement>(`input[data-row-index="${targetRow}"][data-field-index="${targetField}"]`)
+        ?.focus();
+    }, 0);
+  }
+
+  function moveCell(event: React.KeyboardEvent<HTMLInputElement>, rowIndex: number, fieldIndex: number) {
+    if (event.key !== "Tab" && event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    if (event.key === "Enter") {
+      focusCell(rowIndex + (event.shiftKey ? -1 : 1), fieldIndex);
+      return;
+    }
+    let nextRow = rowIndex;
+    let nextField = fieldIndex + (event.shiftKey ? -1 : 1);
+    if (nextField < 0) {
+      nextRow -= 1;
+      nextField = ORDER_FIELDS.length - 1;
+    }
+    if (nextField >= ORDER_FIELDS.length) {
+      nextRow += 1;
+      nextField = 0;
+    }
+    focusCell(nextRow, nextField);
+  }
+
   if (!rows.length) {
     return (
       <div className="table-shell">
@@ -68,7 +101,7 @@ export function DataPreviewTable({ rows, errors, duplicateIds, onChange, onDelet
                   }}
                 >
                   <td>{virtualRow.index + 1}</td>
-                  {ORDER_FIELDS.map((field) => (
+                  {ORDER_FIELDS.map((field, fieldIndex) => (
                     <td
                       key={field.key}
                       className={rowErrors?.has(field.key) || (isDuplicate && (field.key === "externalCode" || field.key === "skuCode")) ? "has-error" : ""}
@@ -84,7 +117,10 @@ export function DataPreviewTable({ rows, errors, duplicateIds, onChange, onDelet
                               ? "外部编码 + SKU 明细重复"
                               : ""
                         }
+                        data-field-index={fieldIndex}
+                        data-row-index={virtualRow.index}
                         onChange={(event) => onChange(row.id, field.key, event.target.value)}
+                        onKeyDown={(event) => moveCell(event, virtualRow.index, fieldIndex)}
                       />
                     </td>
                   ))}

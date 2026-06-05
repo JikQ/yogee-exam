@@ -1,6 +1,12 @@
-import { ORDER_FIELDS, type DuplicateInfo, type OrderRow, type ValidationError } from "@/lib/types";
+import { type DuplicateInfo, type OrderRow, type ValidationError } from "@/lib/types";
 
 const PHONE_RE = /^(\+?\d{1,4}[- ]?)?1[3-9]\d{9}$|^0\d{2,3}[- ]?\d{7,8}$|^\d{6,}$/;
+const RECEIVER_FIELDS: Array<keyof Pick<OrderRow, "receiverStore" | "recipientName" | "recipientPhone" | "recipientAddress">> = [
+  "receiverStore",
+  "recipientName",
+  "recipientPhone",
+  "recipientAddress"
+];
 
 export function validateRows(rows: OrderRow[], existingOrderLineKeys: Set<string> = new Set()) {
   const errors: ValidationError[] = [];
@@ -10,15 +16,33 @@ export function validateRows(rows: OrderRow[], existingOrderLineKeys: Set<string
   rows.forEach((row, index) => {
     const rowNumber = index + 1;
     const hasStoreMode = Boolean(row.receiverStore.trim());
-    const hasRecipientMode = Boolean(row.recipientName.trim() && row.recipientPhone.trim() && row.recipientAddress.trim());
+    const recipientValues = {
+      recipientName: row.recipientName.trim(),
+      recipientPhone: row.recipientPhone.trim(),
+      recipientAddress: row.recipientAddress.trim()
+    };
+    const hasAnyRecipientField = Boolean(recipientValues.recipientName || recipientValues.recipientPhone || recipientValues.recipientAddress);
+    const hasRecipientMode = Boolean(recipientValues.recipientName && recipientValues.recipientPhone && recipientValues.recipientAddress);
 
     if (!hasStoreMode && !hasRecipientMode) {
-      errors.push({
-        rowId: row.id,
-        rowNumber,
-        field: "row",
-        reason: "收货门店，或收件人姓名+电话+地址，至少填写一组"
-      });
+      if (!hasAnyRecipientField) {
+        errors.push({
+          rowId: row.id,
+          rowNumber,
+          field: "row",
+          reason: "收货门店，或收件人姓名+电话+地址，至少填写一组"
+        });
+      } else {
+        if (!recipientValues.recipientName) {
+          errors.push({ rowId: row.id, rowNumber, field: "recipientName", reason: "收件人模式下姓名必填" });
+        }
+        if (!recipientValues.recipientPhone) {
+          errors.push({ rowId: row.id, rowNumber, field: "recipientPhone", reason: "收件人模式下电话必填" });
+        }
+        if (!recipientValues.recipientAddress) {
+          errors.push({ rowId: row.id, rowNumber, field: "recipientAddress", reason: "收件人模式下地址必填" });
+        }
+      }
     }
 
     if (!row.skuCode.trim()) {
@@ -66,7 +90,7 @@ export function errorFieldsByRow(errors: ValidationError[]) {
       map.set(error.rowId, new Set());
     }
     if (error.field === "row") {
-      ORDER_FIELDS.forEach((field) => map.get(error.rowId)?.add(field.key));
+      RECEIVER_FIELDS.forEach((field) => map.get(error.rowId)?.add(field));
     } else {
       map.get(error.rowId)?.add(error.field);
     }

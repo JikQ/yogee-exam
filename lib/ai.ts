@@ -6,6 +6,8 @@ import { executeRule } from "@/lib/rule-engine";
 const baseURL = process.env.OPENAI_BASE_URL;
 const apiKey = process.env.OPENAI_API_KEY;
 const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const AI_TIMEOUT_MS = 3500;
+const AI_MAX_ATTEMPTS = 2;
 
 export async function generateRuleWithAi(snapshot: FileSnapshot): Promise<AiRuleResponse> {
   if (!apiKey) {
@@ -13,36 +15,7 @@ export async function generateRuleWithAi(snapshot: FileSnapshot): Promise<AiRule
   }
 
   try {
-    const endpoint = `${(baseURL || "https://api.openai.com/v1").replace(/\/$/, "")}/chat/completions`;
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content: buildSystemPrompt()
-          },
-          {
-            role: "user",
-            content: JSON.stringify(trimSnapshotForAi(snapshot))
-          }
-        ]
-      }),
-      signal: AbortSignal.timeout(3500)
-    });
-    if (!response.ok) {
-      throw new Error(`模型接口返回 ${response.status}`);
-    }
-    const completion = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const text = completion.choices?.[0]?.message?.content ?? "";
-    const parsed = JSON.parse(text) as AiRuleResponse;
+    const parsed = await requestAiRule(snapshot);
     assertRule(parsed.config);
     if (!isUsableRule(snapshot, parsed.config)) {
       return inferRuleFromSnapshot(snapshot, "AI 返回了合法规则，但试解析质量不足，已自动切换为本地结构识别规则。");
@@ -52,6 +25,50 @@ export async function generateRuleWithAi(snapshot: FileSnapshot): Promise<AiRule
     const message = error instanceof Error ? error.message : "未知错误";
     return inferRuleFromSnapshot(snapshot, `AI 规则生成未完成：${message}。已自动切换为本地结构识别规则。`);
   }
+}
+
+async function requestAiRule(snapshot: FileSnapshot) {
+  const endpoint = `${(baseURL || "https://api.openai.com/v1").replace(/\/$/, "")}/chat/completions`;
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= AI_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: buildSystemPrompt()
+            },
+            {
+              role: "user",
+              content: JSON.stringify(trimSnapshotForAi(snapshot))
+            }
+          ]
+        }),
+        signal: AbortSignal.timeout(AI_TIMEOUT_MS)
+      });
+      if (!response.ok) {
+        throw new Error(`模型接口返回 ${response.status}`);
+      }
+      const completion = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+      const text = completion.choices?.[0]?.message?.content ?? "";
+      return JSON.parse(text) as AiRuleResponse;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("未知错误");
+      if (attempt < AI_MAX_ATTEMPTS) {
+        await delay(250 * attempt);
+      }
+    }
+  }
+  throw lastError ?? new Error("AI 规则生成失败");
 }
 
 function buildSystemPrompt() {
@@ -90,4 +107,10 @@ function isUsableRule(snapshot: FileSnapshot, config: ParseRuleConfig) {
   } catch {
     return false;
   }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
