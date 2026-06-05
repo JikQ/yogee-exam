@@ -481,7 +481,7 @@ a {
 }
 
 .upload-icon {
-  display: grid;
+  display: inline-grid;
   place-items: center;
   width: 48px;
   height: 48px;
@@ -491,6 +491,10 @@ a {
   box-shadow: 0 8px 18px rgba(15, 198, 194, 0.24);
 }
 
+.upload-icon svg {
+  display: block;
+}
+
 .upload-inner strong {
   display: block;
   margin-top: 14px;
@@ -498,7 +502,7 @@ a {
   line-height: 1.5;
 }
 
-.upload-inner span {
+.upload-inner > span:not(.upload-icon) {
   display: block;
   margin-top: 8px;
   color: var(--muted);
